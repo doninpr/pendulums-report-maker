@@ -1,0 +1,8 @@
+version: '3.4'
+
+services:
+  pendulumsreportmaker:
+    image: pendulumsreportmaker
+    build:
+      context: .
+      dockerfile: ./Dockerfile
