@@ -1,68 +1,37 @@
-#include <fstream>
-#include <string>
-#include <iostream>
+#include "main.hpp"
 #include <chrono>
+#include <fstream>
+#include <iostream>
+#include <math.h>
 #include <nlohmann/json.hpp>
+#include <string>
+
 using json = nlohmann::json;
 using string = std::string;
 using namespace std::chrono;
+using namespace reportsMaker;
 
-struct WORKLOG {
-  milliseconds createdAt;
-  string id;
-  string name;
-  string project;
-  milliseconds startedAt;
-  milliseconds stoppedAt;
-  milliseconds updatedAt;
-  string user;
- 
-  milliseconds getTimestamp(json data) {
-    long timestamp = 0;
-    if (data.is_string()) {
-      timestamp = std::stol(data.get<string>());
-    } else if (data.is_number()) {
-      timestamp = data.get<int>();
+float roundFloat(float number) { return std::round(number * 100) / 100; }
+
+string getStringFromDuration(float duration) {
+  string durationStr = std::to_string(duration);
+
+  for (std::string::reverse_iterator i = durationStr.rbegin();
+       i != durationStr.rend(); ++i) {
+    if (*i == '0') {
+      durationStr.erase(i.base() - 1);
+    } else if (*i == '.') {
+      durationStr.erase(i.base() - 1);
+      break;
+    } else {
+      break;
     }
-    return milliseconds(timestamp);
-  }
- 
-  milliseconds getDuration() {
-    return stoppedAt - startedAt;
-  }
- 
-  WORKLOG(json data) {
-    createdAt = getTimestamp(data["createdAt"]);
-    id = data["id"];
-    name = data["name"];
-    project = data["project"];
-    startedAt = getTimestamp(data["startedAt"]);
-    stoppedAt = getTimestamp(data["stoppedAt"]);
-    updatedAt = getTimestamp(data["updatedAt"]);
-    user = data["user"];
   }
 
-};
+  return durationStr;
+}
 
-struct GROUP {
-  milliseconds duration;
-  std::vector<WORKLOG> works;
-
-  void push_back(WORKLOG worklog) {
-    works.push_back(worklog);
-    duration += worklog.getDuration();
-  }
-
-  GROUP() {
-    duration = milliseconds(0);
-  }
-
-  minutes getDurationInMinutes() {
-    return duration_cast<minutes>(duration);
-  }
-};
-
-int main(int argc, char** argv) {
+int main(int argc, char **argv) {
 
   string path;
 
@@ -72,6 +41,19 @@ int main(int argc, char** argv) {
   } else {
     path = argv[1];
   }
+
+  int monthNumber;
+  std::cout << "Enter month number [1-12]: ";
+  std::cin >> monthNumber;
+
+  if (monthNumber < 1 || monthNumber > 12) {
+    std::cout << "Error: month number must be between 1 and 12" << std::endl;
+    return 1;
+  }
+
+  int yearNumber;
+  std::cout << "Enter a year [4 digits]: ";
+  std::cin >> yearNumber;
 
   json data;
   std::ifstream f(path);
@@ -83,7 +65,7 @@ int main(int argc, char** argv) {
 
   try {
     data = json::parse(f);
-  } catch (const std::exception& e) {
+  } catch (const std::exception &e) {
     std::cout << "Error: JSON not valid" << std::endl;
     return 1;
   }
@@ -93,16 +75,49 @@ int main(int argc, char** argv) {
     return 1;
   }
 
-  std::map<string, GROUP> works;
-
+  // creating works map
+  std::map<int, group> works;
   for (json::iterator it = data.begin(); it != data.end(); ++it) {
-    WORKLOG worklog = WORKLOG(*it);
-    works[worklog.name].push_back(worklog);
+    worklog worklogInstance = worklog(*it);
+    date worklogDate = worklogInstance.getDate();
+    if (worklogDate.month != monthNumber || worklogDate.year != yearNumber) {
+      continue;
+    }
+    works[worklogDate.day].push_back(worklogInstance);
   }
+
+  string csvSource =
+      "\"Дата\";Наименование услуг;\"Количество рабочих часов\"\n";
+
+  float totalDuration = 0;
 
   for (auto it = works.begin(); it != works.end(); ++it) {
-    std::cout << it->first << ": " << it->second.getDurationInMinutes().count() << std::endl;
+    float duration =
+        roundFloat(it->second.getDurationInMinutes().count() / 60.0);
+    totalDuration += duration;
+
+    string worksString = "";
+    for (auto workName : it->second.works) {
+      worksString += workName + ",\n";
+    }
+
+    string dateString = std::to_string(it->first) + "." +
+                        std::to_string(monthNumber) + "." +
+                        std::to_string(yearNumber);
+
+    string durationStr = getStringFromDuration(duration);
+
+    csvSource += "\"" + dateString + "\";\"" + worksString + "\";\"" +
+                 durationStr + "\"\n";
   }
-  
+
+  csvSource +=
+      "\"Итого\";\"\";\"" + std::to_string(roundFloat(totalDuration)) + "\"\n";
+
+  std::ofstream outfile("pendulumus-export-" + std::to_string(monthNumber) +
+                        "-" + std::to_string(yearNumber) + ".csv");
+  outfile << csvSource << std::endl;
+  outfile.close();
+
   return 0;
 }
